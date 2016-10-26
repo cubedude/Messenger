@@ -1,0 +1,10 @@
+Server: 4 Java classes
+
+ClientDescription.java
+Server.java (main class)
+ServerActions.java
+ServerControl.java
+
+External resources: Google JSON JAR (gson.jar)
+
+Server takes a single parameter: serving TCP/IP port.
