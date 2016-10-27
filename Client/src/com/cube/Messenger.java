@@ -15,8 +15,8 @@ import java.util.List;
 
 
 public class Messenger {
-    private String _username = null;
-    private String partner = null;
+    private String _username = "";
+    private String partner = "";
     private Queue commands = new LinkedList();
     private boolean verbose;
 
@@ -72,13 +72,21 @@ public class Messenger {
     }
 
     String processCommand(String input){
+        String[] splited;
         String output = null;
         input = input.replace("\n", "").trim();
         if(input.isEmpty()) return output;
 
-        String[] splited = input.split(" ");
+        try {
+            splited = input.split(" ");
+        }
+        catch (Exception e) {
+            splited = new String[1];
+            splited[0] = input;
+        }
 
         String c = String.valueOf(splited[0].charAt(0));
+
         if(c.equals("/")){
             if(splited[0].equals("/?") || splited[0].equals("/help"))
             {
@@ -122,7 +130,7 @@ public class Messenger {
                     commands.add("register");
                 }
             }
-            else if(_username.equals(null)) {
+            else if(_username.isEmpty()) {
                 System.out.println("System: set username with /register command!");
             }
             else if(splited[0].equals("/list")) {
@@ -155,7 +163,7 @@ public class Messenger {
                 System.out.println("System: \""+splited[0]+"\" is not a valid command!");
             }
         }
-        else if(_username.equals(null)) {
+        else if(_username.isEmpty()) {
             System.out.println("System: set username with /register command!");
         }
         else if(c.equals("@")) {
