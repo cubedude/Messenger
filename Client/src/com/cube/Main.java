@@ -1,24 +1,32 @@
 package com.cube;
 
 import java.io.File;
-import java.net.Socket;
-import java.io.OutputStream;
-import java.io.InputStream;
 import java.util.Scanner;
-
-import com.google.gson.*;
 
 public class Main {
 
     public static void main(String[] args) {
+        boolean fastWay = false;
+        String serverAddress;
+        String serverPort;
+        String username;
+
         System.out.println("=================================");
         System.out.println("=== Hello to Secure Chat v0.1 ===");
         System.out.println("=================================");
-        String serverAddress = askUser("Please type server address.", false);
-        String serverPort = askUser("Please type server port", false);
-        System.out.println("=================================");
-        String username = askUser("Please type desired username", false);
-        System.out.println("=================================");
+
+        if(!fastWay){
+            serverAddress = askUser("Please type server address.", false);
+            serverPort = askUser("Please type server port", false);
+            System.out.println("=================================");
+            username = askUser("Please type desired username", false);
+            System.out.println("=================================");
+        }
+        else{
+            serverAddress = "localhost";
+            serverPort = "500";
+            username = "User";
+        }
 
         Messenger mes = new Messenger(serverAddress, Integer.parseInt(serverPort), username);
 

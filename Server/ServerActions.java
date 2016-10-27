@@ -36,7 +36,7 @@ readCommand ()
     try {
 	JsonElement data = new JsonParser().parse( in );
 	if (data.isJsonObject()) {
-	    return data.getAsJsonObject();
+		return data.getAsJsonObject();
 	}
         System.err.print ( "Error while reading command from socket (not a JSON object), connection will be shutdown\n" );
 	return null;
