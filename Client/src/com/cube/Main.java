@@ -16,10 +16,10 @@ public class Main {
         System.out.println("=================================");
 
         if(!fastWay){
-            serverAddress = askUser("Please type server address.", false);
-            serverPort = askUser("Please type server port", false);
+            serverAddress = askUser("Please type server address: ", false);
+            serverPort = askUser("Please type server port: ", false);
             System.out.println("=================================");
-            username = askUser("Please type desired username", false);
+            username = askUser("Please type desired username: ", false);
             System.out.println("=================================");
         }
         else{
@@ -39,7 +39,7 @@ public class Main {
         Scanner userInput = new Scanner(System.in);
 
         while(selected.isEmpty()){
-            System.out.println(text);
+            System.out.print(text);
 
             userChoice = userInput.next();
             userChoice = userChoice.trim();
