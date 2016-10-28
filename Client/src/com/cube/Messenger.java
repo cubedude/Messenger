@@ -1,12 +1,16 @@
 package com.cube;
 
+//Import for json
 import com.google.gson.*;
 
+//Imports for detecting inputs
 import java.io.InputStream;
 import java.io.OutputStream;
 
+//Imports for connecting to server
 import java.net.Socket;
 
+//Imports for arrays and lists used
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -15,21 +19,23 @@ import java.util.List;
 
 
 public class Messenger {
+    //Define variables
     private String _username = "";
     private String partner = "";
     private Queue commands = new LinkedList();
-    private boolean verbose;
+    private boolean verbose = false;
 
+    /*
+        Messenger construction to set up the connection to server
+    */
     Messenger (String serverAddress, int serverPort, String username){
         Socket s;
         OutputStream out;
         InputStream in;
         byte[] buffer = new byte[1024];
 
-        verbose = false;
-
         try {
-            //Make a connection
+            // Make a connection
             s = new Socket( serverAddress, serverPort );
             out = s.getOutputStream();
             in = s.getInputStream();
@@ -37,21 +43,25 @@ public class Messenger {
             System.out.println(".. connected to the server.");
             System.out.println(".. joined to public chat. Use /help to see commands.");
 
-            //Register to the server
+            // Register to the server
             String registers = processCommand("/register "+username);
             out.write(registers.getBytes());
 
+            // Start monitoring input from the user and the server
             while (true) {
                 int l;
                 if (System.in.available() != 0)
                 {
+                    // Check if user send a command
                     l = System.in.read( buffer );
                     if (l == -1) break;
 
+                    // Parse the command
                     input = null;
                     input = processCommand(new String(buffer, "UTF-8"));
                     buffer = new byte[1024];
 
+                    // If command has something to send to the server
                     if(input != null){
                         out.write(input.getBytes());
                     }
@@ -59,11 +69,20 @@ public class Messenger {
 
                 if (in.available() != 0)
                 {
+                    // If theres something from the server
                     l = in.read( buffer, 0, buffer.length );
-                    processResponse(new String(buffer, "UTF-8"));
+                    // Process the message
+                    input = null;
+                    input = processResponse(new String(buffer, "UTF-8"));
                     buffer = new byte[1024];
+
+                    // If theres an automatic response needed to be sent to the server
+                    if(input != null){
+                        out.write(input.getBytes());
+                    }
                 }
 
+                // Wait for a bit to check again
                 Thread.currentThread().sleep( 200 ); // 100 milis
             }
         } catch (Exception e) {
@@ -71,12 +90,16 @@ public class Messenger {
         }
     }
 
+    /*
+        Process command from the user and convert them to server json if required
+    */
     String processCommand(String input){
         String[] splited;
         String output = null;
         input = input.replace("\n", "").trim();
         if(input.isEmpty()) return output;
 
+        // try to split the message to seperate command
         try {
             splited = input.split(" ");
         }
@@ -87,9 +110,11 @@ public class Messenger {
 
         String c = String.valueOf(splited[0].charAt(0));
 
+        // if user input seems to have inserted commmand
         if(c.equals("/")){
             if(splited[0].equals("/?") || splited[0].equals("/help"))
             {
+                // Display help for the user
                 System.out.println("=================================");
                 System.out.println("Available commands:");
                 System.out.println("/help - display available commands");
@@ -102,6 +127,7 @@ public class Messenger {
             }
             else if(splited[0].equals("/v") || splited[0].equals("/verbose"))
             {
+                // Turn verbose mode on and off
                 if(verbose){
                     verbose = false;
                     System.out.println("System: Verbose mode turned OFF");
@@ -119,6 +145,7 @@ public class Messenger {
                 else if(splited[1].trim().toLowerCase().equals("all")){
                     System.out.println("System: username can't be \"All\"!");
                 }else{
+                    // Create json object to send to server
                     _username = splited[1];
                     JsonObject register = new JsonObject();
                     register.addProperty("command","register");
@@ -131,10 +158,12 @@ public class Messenger {
                 }
             }
             else if(_username.isEmpty()) {
+                // Check if username has been set
                 System.out.println("System: set username with /register command!");
             }
             else if(splited[0].equals("/list")) {
-                //Check who is online
+                // Check who is online
+                // Create json object to send to server
                 JsonObject listing = new JsonObject();
                 listing.addProperty("command","list");
                 listing.addProperty("src",_username);
@@ -149,6 +178,7 @@ public class Messenger {
 
                 partner = "";
                 if(!messages.isEmpty()) {
+                    // Create json object to send to server
                     JsonObject message = new JsonObject();
                     message.addProperty("command", "send");
                     message.addProperty("src",_username);
@@ -164,6 +194,7 @@ public class Messenger {
             }
         }
         else if(_username.isEmpty()) {
+            // Check if username has been set
             System.out.println("System: set username with /register command!");
         }
         else if(c.equals("@")) {
@@ -202,11 +233,18 @@ public class Messenger {
         return output;
     }
 
-    void processResponse(String input){
+    /*
+        Process command from the server and return a responce if needed
+    */
+    String processResponse(String input){
+        String output = null;
         input = input.replace("\n", "").trim();
+
         try{
+            // Try to parse json from the server
             JsonObject resp = new JsonParser().parse(input).getAsJsonObject();
             if (resp.isJsonObject()) {
+                // Get elements
                 JsonElement errors = resp.get("error");
                 JsonElement result = resp.get("result");
                 JsonElement message = resp.get("message");
@@ -214,21 +252,23 @@ public class Messenger {
                 JsonElement src = resp.get("src");
 
                 if (src != null) {
-                    //Message from someone
+                    // Message from someone
                     System.out.print("@"+src.getAsString()+": ");
 
+                    // Display message content
                     if (message != null) {
                         System.out.println(message.getAsString());
                     }
                 }
                 if (errors != null) {
-                    //Message from server
+                    // Message from server
                     String error = errors.getAsString().trim();
                     String latest = commands.remove().toString();
 
                     if(verbose) System.out.println("System: last command was: "+latest);
 
                     if(latest.equals("send")){
+                        // If last command was "send", process response
                         if(error.equals("ok")){
                             if(verbose) System.out.println("System: message deliverd");
                         }
@@ -240,6 +280,7 @@ public class Messenger {
                         }
                     }
                     else if(latest.equals("register")){
+                        // If last command was "register", process response
                         if(error.equals("ok") || error.equals("registered")){
                             if(verbose) System.out.println("Server: registerd!");
                         }
@@ -251,10 +292,12 @@ public class Messenger {
                         }
                     }
                     else if(latest.equals("list")){
+                        // If last command was "list", process response
                         if(error.equals("ok")){
                             JsonArray users = result.getAsJsonArray();
                             List userList = new ArrayList();
 
+                            // Check the list returned from server
                             for(JsonElement user : users){
                                 JsonObject usr = user.getAsJsonObject();
                                 if(usr != null){
@@ -262,10 +305,12 @@ public class Messenger {
                                 }
                             }
 
+                            // Check if the list was empty
                             if(userList.isEmpty()){
                                 System.out.println("Server: No users are online");
                             }
                             else{
+                                // Output the list to user
                                 System.out.println("Server: Users online: "+String.join(", ",userList));
                             }
                         }
@@ -277,6 +322,7 @@ public class Messenger {
                         }
                     }
                     else{
+                        // Unexpected message from server
                         System.out.println("Server: Unknown response: "+error);
                         if (result != null){
                             System.out.println("Result: "+result.toString());
@@ -285,6 +331,7 @@ public class Messenger {
                 }
             }
             else{
+                // Unable to parse json from server
                 System.err.println( "Error while reading command from server: "+input );
             }
         } catch (Exception e) {
@@ -292,6 +339,7 @@ public class Messenger {
             System.err.println(e);
         }
 
+        return output;
     }
 
 }
