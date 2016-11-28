@@ -9,7 +9,7 @@ public class Main {
      */
     public static void main(String[] args) {
         //Define variables to use later, muutujad defineeritud, et hiljem kasutada
-        boolean fastWay = true; //kui programm käivitatakse, küsib mis on ip port jne, aga arendades ei taha seda koguaeg kasutada
+        boolean fastWay = false; //kui programm käivitatakse, küsib mis on ip port jne, aga arendades ei taha seda koguaeg kasutada
         // et ei peaks kogu aeg sisse logima, kui arendada, siis on true
         String serverAddress;
         String serverPort;

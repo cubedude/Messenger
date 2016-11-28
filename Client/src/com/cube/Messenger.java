@@ -14,9 +14,11 @@ import java.util.*;
 import com.google.gson.*;
 
 //Imports for encryption and decryption
-import java.security.Security;
+import java.security.spec.KeySpec;
 import javax.crypto.*;
+import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.spec.PBEKeySpec;
 
 //Imports for helping functions
 import org.apache.commons.codec.binary.Base64;
@@ -34,7 +36,7 @@ public class Messenger {
 
     // Settings for encryptions
     private String passwordCypherScheme = "AES";
-    private String passwordCypherSchemeLong = "AES/ECB/PKCS5Padding";
+    private String passwordCypherSchemeLong = "AES/CBC/PKCS5Padding";
 
     /*
         Messenger construction to set up the connection to server
@@ -140,6 +142,7 @@ public class Messenger {
                 System.out.println("/list - see the list of users on the server");
                 System.out.println("/setmode \"username\" \"mode\" - set securiy mode for username");
                 System.out.println("/modelist - get available securiy modes");
+                System.out.println("/debug - debug, show some random data");
                 System.out.println("\"message\" - send message to everyone on the server");
                 System.out.println("@username \"message\" send message to specific username");
                 System.out.println("=================================");
@@ -164,16 +167,39 @@ public class Messenger {
                     System.out.println("System: Verbose mode turned ON");
                 }
             }
+            else if(splited[0].equals("/d") || splited[0].equals("/debug")) //
+            {
+                System.out.println("DEBUG: User name: "+_username);
+                System.out.println("For modeList");
+                for(Map.Entry<String, HashMap> entry : modeList.entrySet()) {
+                    String key = entry.getKey();
+                    HashMap value = entry.getValue();
+
+                    System.out.println("  "+key+" => "+value.get("mode").toString());
+                }
+
+                System.out.println("For tempModeSrc");
+                for(Map.Entry<String, HashMap> entry : modeList.entrySet()) {
+                    String key = entry.getKey();
+                    HashMap value = entry.getValue();
+
+                    System.out.println("  "+key+" => "+value.get("mode").toString());
+                }
+
+                System.out.println("For tempModeDest");
+                for(Map.Entry<String, HashMap> entry : modeList.entrySet()) {
+                    String key = entry.getKey();
+                    HashMap value = entry.getValue();
+
+                    System.out.println("  "+key+" => "+value.get("mode").toString());
+                }
+            }
             else if(splited[0].equals("/reg") || splited[0].equals("/register")) // kas registreerib kasutajanime ära
             {
                 //Register username  vaatab kas splited array on suure kui 1 või on tühi, kas üldse sisestas kasutajanime
                 if(splited.length <= 1 || splited[1].trim().isEmpty()){
                     System.out.println("System: username can't be empty!");
                 }
-
-               /* else if(splited[1].trim().toLowerCase().equals("all")){     //kasutajanimi ei tohi olla all, seda pole vaja
-                   // System.out.println("System: username can't be \"All\"!");
-                } */
                 else{
                     // Create json object to send to server - see määrab süsteemisiseselt kasutajanimeks, mis on splited1
                     _username = splited[1];     // json objekt on pm uus array lihtsalt
@@ -250,37 +276,42 @@ public class Messenger {
                         else{
                             String password = String.join(" ", Arrays.copyOfRange(splited, 3, splited.length));
 
-                            try{
-                                String secret = generateKeyFromPassword(password);
-
-                                //Generate new entry
-                                HashMap<String, String> mode = new HashMap<String, String>();
-                                mode.put("mode","password");
-                                mode.put("key",secret);
-
-                                if(tempModeDest.containsKey(dest) && tempModeDest.get(dest).get("mode").equals("password")){
-                                    //Set the new mode as active
-                                    modeList.put(dest,mode);
-                                    tempModeDest.remove(dest);
-                                    System.out.println("System: switched modes to \"password\" with user \""+dest+"\"!");
-                                }else{
-                                    tempModeSrc.put(dest,mode);
-                                    System.out.println("System: set mode to \"password\" with user \""+dest+"\"! \""+dest+"\" needs to set the same mode before it applys!");
-                                }
-
-                                //Send out notification to other person for request/confirmation to change modes
-                                JsonObject message = new JsonObject();
-                                message.addProperty("command", "send");
-                                message.addProperty("src",_username);
-                                message.addProperty("mode", "password");
-                                output = message.toString();
-
-                                if(verbose) System.out.println("System: Add \"send\" to commands");
-                                commands.add("send"); //command on queue ja add lisab sinna asju
+                            if(password.length() > 32){
+                                System.out.println("System: password needs to be less than 32 characters long!");
                             }
-                            catch (Exception e){
-                                System.out.println("System: unable to generate key for \"password\" mode with password!");
-                                System.out.println(e.toString());
+                            else{
+                                try{
+                                    String secret = generateKeyFromPassword(password);
+
+                                    //Generate new entry
+                                    HashMap<String, String> mode = new HashMap<String, String>();
+                                    mode.put("mode","password");
+                                    mode.put("key",secret);
+
+                                    if(tempModeDest.containsKey(dest) && tempModeDest.get(dest).get("mode").equals("password")){
+                                        //Set the new mode as active
+                                        modeList.put(dest,mode);
+                                        tempModeDest.remove(dest);
+                                        System.out.println("System: Switched modes to \"password\" with user \""+dest+"\"!");
+                                    }else{
+                                        tempModeSrc.put(dest,mode);
+                                        System.out.println("System: Set mode to \"password\" with user \""+dest+"\"! \""+dest+"\" needs to set the same mode before it applys!");
+                                    }
+
+                                    //Send out notification to other person for request/confirmation to change modes
+                                    JsonObject message = new JsonObject();
+                                    message.addProperty("command", "send");
+                                    message.addProperty("src",_username);
+                                    message.addProperty("mode", "password");
+                                    output = message.toString();
+
+                                    if(verbose) System.out.println("System: Add \"send\" to commands");
+                                    commands.add("send"); //command on queue ja add lisab sinna asju
+                                }
+                                catch (Exception e){
+                                    System.out.println("System: Unable to generate key for \"password\" mode with password!");
+                                    System.out.println(e.toString());
+                                }
                             }
                         }
                     }else {
@@ -378,8 +409,10 @@ public class Messenger {
 
                     if (message != null) {
                         String mess = null;
+                        if(verbose) System.out.println("System: got message from "+src.getAsString()+"!");
 
                         if(modeList.containsKey(src.getAsString())){
+                            if(verbose) System.out.println("System: message is protected!");
                             HashMap modes = modeList.get(src.getAsString());
                             if(modes.get("mode").equals("password")){
                                 try{
@@ -443,7 +476,7 @@ public class Messenger {
                     else if(latest.equals("register")){ // kui registreeriti, siis saab olla kaks vastust
                         // If last command was "register", process response
                         if(error.equals("ok") || error.equals("registered")){
-                            if(verbose) System.out.println("Server: registerd!"); // kui error on ok ja registered, sis edasi
+                            if(verbose) System.out.println("Server: Name registerd!"); // kui error on ok ja registered, sis edasi
                         }
                         else if(error.equals("re-registered")){
                             System.out.println("Server: Name changed!");
@@ -507,11 +540,14 @@ public class Messenger {
 
     public String createMessage(String createMessage) {
         String message = createMessage;
+        if(verbose) System.out.println("System: create message!");
 
         if(!partner.isEmpty() && modeList.containsKey(partner)){
+            if(verbose) System.out.println("System: .. has a mode with "+partner+"!");
             HashMap modes = modeList.get(partner);
             if(modes.get("mode").equals("password")){
                 try{
+                    if(verbose) System.out.println("System: encrypting message with password!");
                     message = encryptWithKey(message, modes.get("key").toString());
                 }
                 catch (Exception e){
@@ -525,22 +561,28 @@ public class Messenger {
     }
 
     public String generateKeyFromPassword(String password) throws Exception {
-        byte[] arrayBytes = password.getBytes("UTF8");
-        SecretKey ks = new SecretKeySpec(arrayBytes, passwordCypherScheme);
+        if(verbose) System.out.println("System: generateing AES key with password!");
 
-        String secretString = new String(ks.getEncoded());
+        KeySpec spec = new PBEKeySpec(password.toCharArray(), new byte[16], 65536, 256); // AES-256
+        SecretKeyFactory f = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
+        String secretString = new String(f.generateSecret(spec).getEncoded());
+
         return secretString;
     }
 
 
     public String encryptWithKey(String unencryptedString, String key) throws Exception {
-        byte[] decodedKey = Base64.decodeBase64(key.getBytes("UTF8"));
+        if(verbose) System.out.println("System: encrypting message with aes key!");
+        byte[] decodedKey = key.getBytes("UTF8");
         SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
+
+        byte[] iv = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        IvParameterSpec ivspec = new IvParameterSpec(iv);
 
         String encryptedString = null;
         Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
         try {
-            cipher.init(Cipher.ENCRYPT_MODE, secret);
+            cipher.init(Cipher.ENCRYPT_MODE, secret, ivspec);
             byte[] plainText = unencryptedString.getBytes("UTF8");
             byte[] encryptedText = cipher.doFinal(plainText);
             encryptedString = new String(Base64.encodeBase64(encryptedText));
@@ -551,13 +593,17 @@ public class Messenger {
     }
 
     public String decryptWithKey(String encryptedString, String key) throws Exception {
+        if(verbose) System.out.println("System: decrypting message with aes key!");
         byte[] decodedKey = key.getBytes("UTF8");
         SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
+
+        byte[] iv = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        IvParameterSpec ivspec = new IvParameterSpec(iv);
 
         String decryptedText=null;
         Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
         try {
-            cipher.init(Cipher.DECRYPT_MODE, secret);
+            cipher.init(Cipher.DECRYPT_MODE, secret, ivspec);
             byte[] encryptedText = encryptedString.getBytes("UTF8");
             byte[] plainText = cipher.doFinal(encryptedText);
             decryptedText= new String(plainText);
