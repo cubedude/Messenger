@@ -327,11 +327,7 @@ public class Messenger {
                 partner = "";
                 if(!messages.isEmpty()) { // json objekt on array  andmete kogum
                     // Create json object to send to server
-                    JsonObject message = new JsonObject();
-                    message.addProperty("command", "send");
-                    message.addProperty("src",_username);
-                    message.addProperty("message", messages);
-                    output = message.toString();
+                    output = createMessage(messages);
 
                     if(verbose) System.out.println("System: Add \"send\" to commands");
                     commands.add("send"); //command on queue ja add lisab sinna asju
@@ -353,12 +349,7 @@ public class Messenger {
             partner = splited[0].substring(1).trim(); // kui pöördusid kellegi poole, siis partner
 
             if(!messages.isEmpty()) {           // kui on midagi talle saata, siis saada, loob uue objekti , mille ära saadab
-                JsonObject message = new JsonObject();
-                message.addProperty("command", "send");
-                message.addProperty("src", _username); // _ on sest on privet
-                message.addProperty("message",createMessage(messages));
-                message.addProperty("dst", partner);
-                output = message.toString();
+                output = createMessage(messages);
 
                 if(verbose) System.out.println("System: Add \"send\" to commands"); //
                 commands.add("send");
@@ -367,12 +358,7 @@ public class Messenger {
             // Send message to last person
             String messages = String.join(" ", splited); // liidab jälle kõik kokku
             if(!messages.isEmpty()){
-                JsonObject message = new JsonObject();
-                message.addProperty("command","send");
-                message.addProperty("src",_username);
-                message.addProperty("message",createMessage(messages));
-                if(!partner.isEmpty()) message.addProperty("dst",partner);
-                output = message.toString();
+                output = createMessage(messages);
 
                 if(verbose) System.out.println("System: Add \"send\" to commands");
                 commands.add("send");
@@ -400,7 +386,7 @@ public class Messenger {
                 JsonElement result = resp.get("result");
                 JsonElement message = resp.get("message");
                 JsonElement mode = resp.get("mode");
-                JsonElement dst = resp.get("dst");
+                JsonElement iv = resp.get("iv");
                 JsonElement src = resp.get("src");
 
                 if (src != null) { // st et keegi kirjutas sulle selle, see ei ole tühi vastus
@@ -411,17 +397,25 @@ public class Messenger {
                         String mess = null;
                         if(verbose) System.out.println("System: got message from "+src.getAsString()+"!");
 
-                        if(modeList.containsKey(src.getAsString())){
-                            if(verbose) System.out.println("System: message is protected!");
-                            HashMap modes = modeList.get(src.getAsString());
-                            if(modes.get("mode").equals("password")){
-                                try{
-                                    mess = decryptWithKey(message.getAsString(),modes.get("key").toString());
+                        if(mode != null){
+                            if(modeList.containsKey(src.getAsString())){
+                                if(verbose) System.out.println("System: message is protected!");
+                                HashMap modes = modeList.get(src.getAsString());
+                                if(modes.get("mode").equals("password")){
+                                    if(iv != null){
+                                        try{
+                                            mess = decryptWithKey(iv.getAsString(),message.getAsString(),modes.get("key").toString());
+                                        }
+                                        catch (Exception e){
+                                            System.out.println("System: unable to decrypt message from \""+src.getAsString()+"\" using \"password\" mode!");
+                                            System.out.println(e.toString());
+                                        }
+                                    }else{
+                                        System.out.println("System:a message from \""+src.getAsString()+"\" using \"password\" mode contained no IV!");
+                                    }
                                 }
-                                catch (Exception e){
-                                    System.out.println("System: unable to decrypt message from \""+src.getAsString()+"\" using \"password\" mode!");
-                                    System.out.println(e.toString());
-                                }
+                            }else{
+                                System.out.println("System: User \""+src.getAsString()+"\" sent message in \""+mode.getAsString()+"\" mode but are not in that mode!");
                             }
                         }
                         else{
@@ -538,17 +532,24 @@ public class Messenger {
         // see saadetakse serverile automaatselt tagasi
     }
 
-    public String createMessage(String createMessage) {
-        String message = createMessage;
-        if(verbose) System.out.println("System: create message!");
+    public String createMessage(String messag) {
+        if(verbose) System.out.println("System: create message for \""+partner+"\"!");
+
+        JsonObject message = new JsonObject();
+        message.addProperty("command","send");
+        message.addProperty("src",_username);
+        if(!partner.isEmpty()) message.addProperty("dst",partner);
 
         if(!partner.isEmpty() && modeList.containsKey(partner)){
             if(verbose) System.out.println("System: .. has a mode with "+partner+"!");
             HashMap modes = modeList.get(partner);
             if(modes.get("mode").equals("password")){
+                message.addProperty("mode","password");
                 try{
                     if(verbose) System.out.println("System: encrypting message with password!");
-                    message = encryptWithKey(message, modes.get("key").toString());
+                    String[] encrypted = encryptWithKey(messag, modes.get("key").toString());
+                    message.addProperty("iv",encrypted[0]);
+                    messag = encrypted[1];
                 }
                 catch (Exception e){
                     System.out.println("System: unable to encrypt message using \"password\" mode!");
@@ -557,7 +558,9 @@ public class Messenger {
             }
         }
 
-        return message;
+        message.addProperty("message",messag);
+
+        return message.toString();
     }
 
     public String generateKeyFromPassword(String password) throws Exception {
@@ -571,39 +574,40 @@ public class Messenger {
     }
 
 
-    public String encryptWithKey(String unencryptedString, String key) throws Exception {
+    public String[] encryptWithKey(String unencryptedString, String key) throws Exception {
         if(verbose) System.out.println("System: encrypting message with aes key!");
         byte[] decodedKey = key.getBytes("UTF8");
         SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
 
-        byte[] iv = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        IvParameterSpec ivspec = new IvParameterSpec(iv);
-
         String encryptedString = null;
+        String iv = null;
         Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
         try {
-            cipher.init(Cipher.ENCRYPT_MODE, secret, ivspec);
+            cipher.init(Cipher.ENCRYPT_MODE, secret);
             byte[] plainText = unencryptedString.getBytes("UTF8");
             byte[] encryptedText = cipher.doFinal(plainText);
-            encryptedString = new String(Base64.encodeBase64(encryptedText));
+            encryptedString = new String(encryptedText);
+            iv = new String(cipher.getIV());
+
         } catch (Exception e) {
             e.printStackTrace();
         }
-        return encryptedString;
+
+        String[] output = {iv, encryptedString};
+        return output;
     }
 
-    public String decryptWithKey(String encryptedString, String key) throws Exception {
+    public String decryptWithKey(String ivString, String encryptedString, String key) throws Exception {
         if(verbose) System.out.println("System: decrypting message with aes key!");
         byte[] decodedKey = key.getBytes("UTF8");
         SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
 
-        byte[] iv = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-        IvParameterSpec ivspec = new IvParameterSpec(iv);
+        byte[] iv = ivString.getBytes("UTF8");
 
         String decryptedText=null;
         Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
         try {
-            cipher.init(Cipher.DECRYPT_MODE, secret, ivspec);
+            cipher.init(Cipher.DECRYPT_MODE, secret, new IvParameterSpec(iv));
             byte[] encryptedText = encryptedString.getBytes("UTF8");
             byte[] plainText = cipher.doFinal(encryptedText);
             decryptedText= new String(plainText);
