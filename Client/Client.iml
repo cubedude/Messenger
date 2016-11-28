@@ -8,5 +8,10 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="gson-2.6.2" level="project" />
+    <orderEntry type="library" name="org-apache-commons-codec" level="project" />
+    <orderEntry type="library" name="bcmail-jdk15-133" level="project" />
+    <orderEntry type="library" name="bcpg-jdk15-133" level="project" />
+    <orderEntry type="library" name="bcprov-jdk15-133" level="project" />
+    <orderEntry type="library" name="bctsp-jdk15-133" level="project" />
   </component>
 </module>

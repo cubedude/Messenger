@@ -1,8 +1,5 @@
 package com.cube;
 
-//Import for json
-import com.google.gson.*;
-
 //Imports for detecting inputs
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -11,70 +8,89 @@ import java.io.OutputStream;
 import java.net.Socket;
 
 //Imports for arrays and lists used
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.List;
+import java.util.*;
 
+//Import for json
+import com.google.gson.*;
+
+//Imports for encryption and decryption
+import java.security.Security;
+import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
+
+//Imports for helping functions
+import org.apache.commons.codec.binary.Base64;
 
 public class Messenger {
     //Define variables
     private String _username = "";
     private String partner = "";
-    private Queue commands = new LinkedList();
+    private Queue commands = new LinkedList(); // FIFO, LILO
     private boolean verbose = false;
+
+    private Map<String, HashMap> modeList = new HashMap<String, HashMap>(); // Setted modes
+    private Map<String, HashMap> tempModeSrc = new HashMap<String, HashMap>(); // temporary modes for user
+    private Map<String, HashMap> tempModeDest = new HashMap<String, HashMap>(); // temporary modes from other
+
+    // Settings for encryptions
+    private String passwordCypherScheme = "AES";
+    private String passwordCypherSchemeLong = "AES/ECB/PKCS5Padding";
 
     /*
         Messenger construction to set up the connection to server
     */
     Messenger (String serverAddress, int serverPort, String username){
-        Socket s;
-        OutputStream out;
-        InputStream in;
+        //vanad variables
+        Socket s;       // Pesa sisseehitatud klass
+        OutputStream out; // sisseehitatud klass
+        InputStream in; //sama
         byte[] buffer = new byte[1024];
 
         try {
-            // Make a connection
+            // Make a connection, proovi, kas ühendust saab teha
             s = new Socket( serverAddress, serverPort );
-            out = s.getOutputStream();
-            in = s.getInputStream();
+            out = s.getOutputStream(); // socketi funktsioon, hakkab lugema serveri poolt tulevat infot
+            in = s.getInputStream(); // loeb kasutajapoolset infot
             String input;
             System.out.println(".. connected to the server.");
             System.out.println(".. joined to public chat. Use /help to see commands.");
 
             // Register to the server
-            String registers = processCommand("/register "+username);
-            out.write(registers.getBytes());
+            String registers = processCommand("/register "+username); // funktsioon, mis saadab serverisse funtksiooni / register kasutajanimi
+            out.write(registers.getBytes()); // kui proces command on teinud selle rea serverile mõistetavaks, siis ta saadab selle
+            //baitide formaadis serverise
 
-            // Start monitoring input from the user and the server
+            // Start monitoring input from the user and the server - infinite loop, mis ei lõpe kunagi ära, ei saa kunagi olla false
+            // küsib kas õige on õige
+
+            //kuidas käitub kui tahab ühendust saavutada
             while (true) {
                 int l;
-                if (System.in.available() != 0)
+                if (System.in.available() != 0) // kontrollib kas kasutaja on sisestanud mingit infot
                 {
                     // Check if user send a command
-                    l = System.in.read( buffer );
-                    if (l == -1) break;
+                    l = System.in.read( buffer ); // loeb commandi in-st
+                    if (l == -1) break; // see on vale, katkestab, alustab alguses
 
                     // Parse the command
-                    input = null;
-                    input = processCommand(new String(buffer, "UTF-8"));
-                    buffer = new byte[1024];
+                    input = null;           // igaks juhuks nullib inputi ära
+                    input = processCommand(new String(buffer, "UTF-8")); // sama mis registerCommand, mida saab korduvalt kasutada
+                    buffer = new byte[1024]; //nullib bufferi, seda kasutati enne kasutajaandmete saamiseks, on vaja tühja
 
                     // If command has something to send to the server
-                    if(input != null){
-                        out.write(input.getBytes());
+                    if(input != null){  // kui input ei ole 0, kui process command tagastas midagi, siis saada serverisse
+                        out.write(input.getBytes()); // kui ei tagastanud, sii spole midgai saata
                     }
                 }
 
-                if (in.available() != 0)
+                if (in.available() != 0) // kui serverist tuleb mingit infot, siis loe bufferisse see, mida server saatis
                 {
                     // If theres something from the server
                     l = in.read( buffer, 0, buffer.length );
                     // Process the message
                     input = null;
-                    input = processResponse(new String(buffer, "UTF-8"));
-                    buffer = new byte[1024];
+                    input = processResponse(new String(buffer, "UTF-8")); // loeb serverist saanud informatsiooni
+                    buffer = new byte[1024]; // uuesti nullib bufferi ära, ei ole vaja segada info saamist
 
                     // If theres an automatic response needed to be sent to the server
                     if(input != null){
@@ -82,52 +98,64 @@ public class Messenger {
                     }
                 }
 
-                // Wait for a bit to check again
-                Thread.currentThread().sleep( 200 ); // 100 milis
+                // Wait for a bit to check again pm on see sleep
+                Thread.currentThread().sleep( 200 ); // 100 milis , sisseehitatud funktsioon, saab ka multithreadida
             }
-        } catch (Exception e) {
+        } catch (Exception e) {             // kui ei saanud serverisse connectionit teha, siis tagastab errorit
             System.err.println( "Exception: " + e );
         }
     }
 
     /*
         Process command from the user and convert them to server json if required
+        ProcessCommand töötleb infot, mis on saadud userilt ja convert selle Json-iks kui vaja
     */
-    String processCommand(String input){
-        String[] splited;
-        String output = null;
-        input = input.replace("\n", "").trim();
-        if(input.isEmpty()) return output;
+    String processCommand(String input){        // kui kasutajalt tuleb sisendit, siis see tuleb töödelda
+        String[] splited;                       // defineeritakse muutujad mida läheb vaja
+        String output = null;                   // väljund kui serverile tagastatakse, siis see on placeholder
+        input = input.replace("\n", "").trim(); // replace võtab enterid ära ja tühikud
+        if(input.isEmpty()) return output;      // kui sisend on tühi, siis tagastab 0, kuna pole midagi töödelda
 
-        // try to split the message to seperate command
+        // try to split the message to seperate command, tehtud selleks et ei oleks erroreid, võibolla pole seda vaja
         try {
-            splited = input.split(" ");
+            splited = input.split(" ");         // siin splitib tühiku järgi, proovib seda teha
         }
         catch (Exception e) {
             splited = new String[1];
             splited[0] = input;
         }
 
-        String c = String.valueOf(splited[0].charAt(0));
+        String c = String.valueOf(splited[0].charAt(0)); // on kõige esimene karakter, mida kasutaja sisestas
 
         // if user input seems to have inserted commmand
-        if(c.equals("/")){
-            if(splited[0].equals("/?") || splited[0].equals("/help"))
+        if(c.equals("/")){                  // kas on võrdne /, siis kasuataja püüdis sisestada mingit commandi
+            if(splited[0].equals("/?") || splited[0].equals("/help")) // kui kontrollib neid asju,
             {
-                // Display help for the user
+                // Display help for the user, kontrollime, mis commandi kasutaja sisestas
                 System.out.println("=================================");
                 System.out.println("Available commands:");
                 System.out.println("/help - display available commands");
                 System.out.println("/verbose - toggle verbose mode on and off");
                 System.out.println("/register \"username\" - Changes your name on server");
                 System.out.println("/list - see the list of users on the server");
+                System.out.println("/setmode \"username\" \"mode\" - set securiy mode for username");
+                System.out.println("/modelist - get available securiy modes");
                 System.out.println("\"message\" - send message to everyone on the server");
                 System.out.println("@username \"message\" send message to specific username");
                 System.out.println("=================================");
             }
-            else if(splited[0].equals("/v") || splited[0].equals("/verbose"))
+            else if(splited[0].equals("/modelist") || splited[0].equals("/model")) // kui kontrollib neid asju,
             {
-                // Turn verbose mode on and off
+                // Display help for the user, kontrollime, mis commandi kasutaja sisestas
+                System.out.println("=================================");
+                System.out.println("Available modes:");
+                System.out.println("plaintext - set mode to plaintext");
+                System.out.println("password \"password\" - set mode password with and use password \"password\"");
+                System.out.println("=================================");
+            }
+            else if(splited[0].equals("/v") || splited[0].equals("/verbose")) //
+            {
+                // Turn verbose mode on and off, see on nagu valguslüliti, kas on see või ei ole, kui / verbose siis sisse kui enne ei olenud ja vastupidi
                 if(verbose){
                     verbose = false;
                     System.out.println("System: Verbose mode turned OFF");
@@ -136,32 +164,35 @@ public class Messenger {
                     System.out.println("System: Verbose mode turned ON");
                 }
             }
-            else if(splited[0].equals("/reg") || splited[0].equals("/register"))
+            else if(splited[0].equals("/reg") || splited[0].equals("/register")) // kas registreerib kasutajanime ära
             {
-                //Register username
+                //Register username  vaatab kas splited array on suure kui 1 või on tühi, kas üldse sisestas kasutajanime
                 if(splited.length <= 1 || splited[1].trim().isEmpty()){
                     System.out.println("System: username can't be empty!");
                 }
-                else if(splited[1].trim().toLowerCase().equals("all")){
-                    System.out.println("System: username can't be \"All\"!");
-                }else{
-                    // Create json object to send to server
-                    _username = splited[1];
-                    JsonObject register = new JsonObject();
-                    register.addProperty("command","register");
-                    register.addProperty("src",_username);
 
-                    output = register.toString();
+               /* else if(splited[1].trim().toLowerCase().equals("all")){     //kasutajanimi ei tohi olla all, seda pole vaja
+                   // System.out.println("System: username can't be \"All\"!");
+                } */
+                else{
+                    // Create json object to send to server - see määrab süsteemisiseselt kasutajanimeks, mis on splited1
+                    _username = splited[1];     // json objekt on pm uus array lihtsalt
+                    JsonObject register = new JsonObject();
+                    register.addProperty("command","register"); // lisame uue keyga command, läheb serverisse, ütleme command on register
+                    register.addProperty("src",_username); //src kasutajanimi
+
+                    output = register.toString(); // jsonobject teha stringiks, mida on võimalik serverile saata
 
                     if(verbose) System.out.println("System: Add \"register\" to commands");
-                    commands.add("register");
+                    commands.add("register");  // iga kord kui serverisse saadetakse command , lisatakse se Queue-sse
+                    // ja kui server annab vastust, siis on teada, millisele commandile see tuli, see on hiljem
                 }
             }
             else if(_username.isEmpty()) {
                 // Check if username has been set
                 System.out.println("System: set username with /register command!");
             }
-            else if(splited[0].equals("/list")) {
+            else if(splited[0].equals("/list")) { // see on sama nagu registreerimisega, uus jsoni obkjekt, lisatakse command list ja saadetakse enda kasutajale
                 // Check who is online
                 // Create json object to send to server
                 JsonObject listing = new JsonObject();
@@ -169,15 +200,101 @@ public class Messenger {
                 listing.addProperty("src",_username);
                 output = listing.toString();
 
-                if(verbose) System.out.println("System: Add \"list\" to commands");
-                commands.add("list");
+                if(verbose) System.out.println("System: Add \"list\" to commands"); // kui tahan näha, mis süsteem kogu aeg teeb, saan verbose sisse
+                commands.add("list");              //command on queue ja add lisab sinna asju      // lülitada ja ta prindib igat etappi välja
             }
-            else if(splited[0].equals("/all")) {
+            else if(splited[0].equals("/mode") || splited[0].equals("/setmode")) // kas registreerib kasutajanime ära
+            {
+                if(splited.length <= 1 || splited[1].trim().isEmpty()){
+                    System.out.println("System: username can't be empty!");
+                }
+                else{
+                    String dest = splited[1].trim();
+                    if(splited.length <= 2 || splited[2].trim().isEmpty()){
+                        System.out.println("System: mode can't be empty! use /modelist to see the mode options");
+                    }
+                    else if(splited[2].equals("plain") || splited[2].equals("text") || splited[2].equals("plaintext")){
+                        if(!modeList.containsKey(dest)){
+                            System.out.println("System: no security mode has been set with \""+dest+"\"!");
+                        }
+                        else{
+                            if(tempModeDest.containsKey(dest) && tempModeDest.get(dest).get("mode").equals("plaintext")){
+                                modeList.remove(dest);
+                                tempModeDest.remove(dest);
+                                System.out.println("System: switched modes to \"plaintext\" with user \""+dest+"\"!");
+                            }
+                            else{
+                                //Generate new entry
+                                HashMap<String, String> mode = new HashMap<String, String>();
+                                mode.put("mode","plaintext");
+
+                                tempModeSrc.put(dest,mode);
+                                System.out.println("System: set mode to \"plaintext\" with user \""+dest+"\"! \"\"+dest+\"\" needs to set the same mode before it applys!");
+                            }
+
+                            //Send out notification to other person for request/confirmation to change modes
+                            JsonObject message = new JsonObject();
+                            message.addProperty("command", "send");
+                            message.addProperty("src",_username);
+                            message.addProperty("mode", "plaintext");
+                            output = message.toString();
+
+                            if(verbose) System.out.println("System: Add \"send\" to commands");
+                            commands.add("send"); //command on queue ja add lisab sinna asju
+                        }
+                    }
+                    else if(splited[2].equals("pass") || splited[2].equals("password")){
+                        if(splited.length <= 3 || splited[3].trim().isEmpty()){
+                            System.out.println("System: password can't be empty for \"password\" mode!");
+                        }
+                        else{
+                            String password = String.join(" ", Arrays.copyOfRange(splited, 3, splited.length));
+
+                            try{
+                                String secret = generateKeyFromPassword(password);
+
+                                //Generate new entry
+                                HashMap<String, String> mode = new HashMap<String, String>();
+                                mode.put("mode","password");
+                                mode.put("key",secret);
+
+                                if(tempModeDest.containsKey(dest) && tempModeDest.get(dest).get("mode").equals("password")){
+                                    //Set the new mode as active
+                                    modeList.put(dest,mode);
+                                    tempModeDest.remove(dest);
+                                    System.out.println("System: switched modes to \"password\" with user \""+dest+"\"!");
+                                }else{
+                                    tempModeSrc.put(dest,mode);
+                                    System.out.println("System: set mode to \"password\" with user \""+dest+"\"! \""+dest+"\" needs to set the same mode before it applys!");
+                                }
+
+                                //Send out notification to other person for request/confirmation to change modes
+                                JsonObject message = new JsonObject();
+                                message.addProperty("command", "send");
+                                message.addProperty("src",_username);
+                                message.addProperty("mode", "password");
+                                output = message.toString();
+
+                                if(verbose) System.out.println("System: Add \"send\" to commands");
+                                commands.add("send"); //command on queue ja add lisab sinna asju
+                            }
+                            catch (Exception e){
+                                System.out.println("System: unable to generate key for \"password\" mode with password!");
+                                System.out.println(e.toString());
+                            }
+                        }
+                    }else {
+                        System.out.println("System: \""+splited[2]+"\" is not a valid mode! Use /modelist to see the mode options");
+                    }
+                }
+            }
+            else if(splited[0].equals("/all")) {            // kui tahad global chatti kirjutada midagi
                 // Send message to All
-                String messages = String.join(" ", Arrays.copyOfRange(splited, 1, splited.length));
+                String messages = String.join(" ", Arrays.copyOfRange(splited, 1, splited.length)); // tühik, funktsiooni alguses splittis tühikute järgi
+                // nüüd peab kokku splittima, et saada message
 
                 partner = "";
-                if(!messages.isEmpty()) {
+                if(!messages.isEmpty()) { // json objekt on array  andmete kogum
                     // Create json object to send to server
                     JsonObject message = new JsonObject();
                     message.addProperty("command", "send");
@@ -186,42 +303,43 @@ public class Messenger {
                     output = message.toString();
 
                     if(verbose) System.out.println("System: Add \"send\" to commands");
-                    commands.add("send");
+                    commands.add("send"); //command on queue ja add lisab sinna asju
                 }
             }
             else{
-                System.out.println("System: \""+splited[0]+"\" is not a valid command!");
+                System.out.println("System: \""+splited[0]+"\" is not a valid command! Use /help to see commands"); // nüüd kõik need commanded on läbi ja kui on muud sisestatud
+                // siis see pole see, mida kasutada
             }
         }
-        else if(_username.isEmpty()) {
+        else if(_username.isEmpty()) {      // kui kasutajanimi on määratud igaks juhuks kontrollib
             // Check if username has been set
             System.out.println("System: set username with /register command!");
         }
-        else if(c.equals("@")) {
+        else if(c.equals("@")) { // kas kõige esimene asi on @ märk
             // Send message to specific person
-            String messages = String.join(" ", Arrays.copyOfRange(splited, 1, splited.length));
+            String messages = String.join(" ", Arrays.copyOfRange(splited, 1, splited.length)); // siis ühendab nagu all'is kõik asjad
 
-            partner = splited[0].substring(1).trim();
+            partner = splited[0].substring(1).trim(); // kui pöördusid kellegi poole, siis partner
 
-            if(!messages.isEmpty()) {
+            if(!messages.isEmpty()) {           // kui on midagi talle saata, siis saada, loob uue objekti , mille ära saadab
                 JsonObject message = new JsonObject();
                 message.addProperty("command", "send");
-                message.addProperty("src", _username);
-                message.addProperty("message", messages);
+                message.addProperty("src", _username); // _ on sest on privet
+                message.addProperty("message",createMessage(messages));
                 message.addProperty("dst", partner);
                 output = message.toString();
 
-                if(verbose) System.out.println("System: Add \"send\" to commands");
+                if(verbose) System.out.println("System: Add \"send\" to commands"); //
                 commands.add("send");
             }
         }else{
             // Send message to last person
-            String messages = String.join(" ", splited);
+            String messages = String.join(" ", splited); // liidab jälle kõik kokku
             if(!messages.isEmpty()){
                 JsonObject message = new JsonObject();
                 message.addProperty("command","send");
                 message.addProperty("src",_username);
-                message.addProperty("message",messages);
+                message.addProperty("message",createMessage(messages));
                 if(!partner.isEmpty()) message.addProperty("dst",partner);
                 output = message.toString();
 
@@ -230,59 +348,102 @@ public class Messenger {
             }
         }
 
-        return output;
+        return output; // tagasta jsoni objekt,  mis võibolla luuakse, õieti selle jsoni string
     }
 
     /*
         Process command from the server and return a responce if needed
+        processCommand töötleb serverilt saadud infot ja saadab vajadusel vastuse
     */
-    String processResponse(String input){
+    String processResponse(String input){ // kui serverist tuleb mingi vastus, siis see on see funktsioon, mis parseb seda vastust
+        // parse on protsess, töötleb, muudab
         String output = null;
-        input = input.replace("\n", "").trim();
+        input = input.replace("\n", "").trim(); // tühikud ja enterid võetakse ära
 
         try{
-            // Try to parse json from the server
+            // Try to parse json from the server , võtab stringi mis server staatis ja teeb json objektiks , pm arrayks
             JsonObject resp = new JsonParser().parse(input).getAsJsonObject();
             if (resp.isJsonObject()) {
-                // Get elements
+                // Get elements     seal saavad olla erinevad, mis võivad olla seal vastuses, aga ei pruugi
                 JsonElement errors = resp.get("error");
                 JsonElement result = resp.get("result");
                 JsonElement message = resp.get("message");
+                JsonElement mode = resp.get("mode");
                 JsonElement dst = resp.get("dst");
                 JsonElement src = resp.get("src");
 
-                if (src != null) {
-                    // Message from someone
-                    System.out.print("@"+src.getAsString()+": ");
+                if (src != null) { // st et keegi kirjutas sulle selle, see ei ole tühi vastus
+                    // Display message content ja kui sõnumi sisuks on ka midagi, siis edastab selle sõnumi,
+                    // siia peab hakkama krüptimise asju  lisama
 
-                    // Display message content
                     if (message != null) {
-                        System.out.println(message.getAsString());
+                        String mess = null;
+
+                        if(modeList.containsKey(src.getAsString())){
+                            HashMap modes = modeList.get(src.getAsString());
+                            if(modes.get("mode").equals("password")){
+                                try{
+                                    mess = decryptWithKey(message.getAsString(),modes.get("key").toString());
+                                }
+                                catch (Exception e){
+                                    System.out.println("System: unable to decrypt message from \""+src.getAsString()+"\" using \"password\" mode!");
+                                    System.out.println(e.toString());
+                                }
+                            }
+                        }
+                        else{
+                            mess = message.getAsString();
+                        }
+
+                        if(mess != null){
+                            // Message from someone, väljundab selle kasutajanime, kes saatis
+                            System.out.print("@"+src.getAsString()+": ");
+                            System.out.println(mess);
+                        }
+                    }
+                    else if (mode != null) {
+                        if(tempModeSrc.containsKey(src.getAsString()) && tempModeSrc.get(src.getAsString()).get("mode").equals(mode.getAsString())){
+                            //Set the new mode as active
+                            modeList.put(src.getAsString(),tempModeSrc.get(src.getAsString()));
+                            tempModeSrc.remove(src.getAsString());
+
+                            System.out.println("System: User \""+src.getAsString()+"\" has switched mode to \""+mode.getAsString()+"\"! This mode is now active!");
+                        }else{
+                            //Generate new entry
+                            HashMap modes = new HashMap<>();
+                            modes.put("mode",mode.getAsString());
+                            tempModeDest.put(src.getAsString(),modes);
+
+                            System.out.println("System: User \""+src.getAsString()+"\" has put mode as \""+mode.getAsString()+"\"! You need to set your mode to same before it applys!");
+                        }
                     }
                 }
-                if (errors != null) {
+                if (errors != null) { // kui serveri poolt tulid mingid errorid st mingid vastused, siis
                     // Message from server
-                    String error = errors.getAsString().trim();
-                    String latest = commands.remove().toString();
+                    String error = errors.getAsString().trim(); // error tehakse stringiks
+                    String latest = commands.remove().toString(); // command mida lisasime queuesse ja võtame
+                    // sealt asja välja, mis sisestati kõige esimesene
 
-                    if(verbose) System.out.println("System: last command was: "+latest);
+                    if(verbose) System.out.println("System: last command was: "+latest); //süsteemi logimine kui tahta sisselülitada
 
-                    if(latest.equals("send")){
+                    if(latest.equals("send")){      //kui kõige esimene command, mis oli queues ja millele ei ole vastust tulnud oli send
                         // If last command was "send", process response
-                        if(error.equals("ok")){
-                            if(verbose) System.out.println("System: message deliverd");
+                        if(error.equals("ok")){ // kui error on ok, siis st et sõnum saadeti ilusasti välja
+                            // kui logimine on sisselülitatud, siis see tagastatakse ka kasutajale, st server arvas nii
+                            if(verbose) System.out.println("System: message delivered");
                         }
-                        else if(error.equals("unknown")){
+                        else if(error.equals("unknown")){ //kasutajanime, kellele taheti saata, ei eksisteeri
+                            // sõnum tagastatakse saatjale
                             System.out.println("Server: Wrong username.");
                         }
                         else{
                             System.out.println("Server: Unexpected response for messageing: "+error);
                         }
                     }
-                    else if(latest.equals("register")){
+                    else if(latest.equals("register")){ // kui registreeriti, siis saab olla kaks vastust
                         // If last command was "register", process response
                         if(error.equals("ok") || error.equals("registered")){
-                            if(verbose) System.out.println("Server: registerd!");
+                            if(verbose) System.out.println("Server: registerd!"); // kui error on ok ja registered, sis edasi
                         }
                         else if(error.equals("re-registered")){
                             System.out.println("Server: Name changed!");
@@ -291,22 +452,23 @@ public class Messenger {
                             System.out.println("Server: Unexpected response for /register: "+error);
                         }
                     }
-                    else if(latest.equals("list")){
+                    else if(latest.equals("list")){ // list on command, mis tagastab kõik kasutajad, kes on serveris
                         // If last command was "list", process response
                         if(error.equals("ok")){
-                            JsonArray users = result.getAsJsonArray();
+                            JsonArray users = result.getAsJsonArray(); //jsoni objektis on sees veel üks array kasutajatest, mille peame kätte saama
                             List userList = new ArrayList();
 
                             // Check the list returned from server
-                            for(JsonElement user : users){
-                                JsonObject usr = user.getAsJsonObject();
+                            for(JsonElement user : users){ // käime iga elemendi saadud arrays kasutajate list läbi
+                                JsonObject usr = user.getAsJsonObject(); // parsame seda , muudame json objektiks, et saame andmeid välja võtta
+                                // vaatame, kas nimi on olemas src ja lisame user listi
                                 if(usr != null){
                                     userList.add(usr.get("src").getAsString());
                                 }
                             }
 
                             // Check if the list was empty
-                            if(userList.isEmpty()){
+                            if(userList.isEmpty()){ // seda ei tohiks kunagi juhtuda, kuna oleme alati sees
                                 System.out.println("Server: No users are online");
                             }
                             else{
@@ -314,7 +476,7 @@ public class Messenger {
                                 System.out.println("Server: Users online: "+String.join(", ",userList));
                             }
                         }
-                        else{
+                        else{ // kui ei tule midagi, siis ..., ei tohiks kunagi juhtuda
                             System.out.println("Server: Unknown response for list: "+error);
                             if (result != null){
                                 System.out.println("Result: "+result.toString());
@@ -339,7 +501,71 @@ public class Messenger {
             System.err.println(e);
         }
 
-        return output;
+        return output; // kui server on saatnud meile midagi, mis nõuab kohest vastust, kui kirjutada midagi outputi, siis
+        // see saadetakse serverile automaatselt tagasi
     }
+
+    public String createMessage(String createMessage) {
+        String message = createMessage;
+
+        if(!partner.isEmpty() && modeList.containsKey(partner)){
+            HashMap modes = modeList.get(partner);
+            if(modes.get("mode").equals("password")){
+                try{
+                    message = encryptWithKey(message, modes.get("key").toString());
+                }
+                catch (Exception e){
+                    System.out.println("System: unable to encrypt message using \"password\" mode!");
+                    System.out.println(e.toString());
+                }
+            }
+        }
+
+        return message;
+    }
+
+    public String generateKeyFromPassword(String password) throws Exception {
+        byte[] arrayBytes = password.getBytes("UTF8");
+        SecretKey ks = new SecretKeySpec(arrayBytes, passwordCypherScheme);
+
+        String secretString = new String(ks.getEncoded());
+        return secretString;
+    }
+
+
+    public String encryptWithKey(String unencryptedString, String key) throws Exception {
+        byte[] decodedKey = Base64.decodeBase64(key.getBytes("UTF8"));
+        SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
+
+        String encryptedString = null;
+        Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
+        try {
+            cipher.init(Cipher.ENCRYPT_MODE, secret);
+            byte[] plainText = unencryptedString.getBytes("UTF8");
+            byte[] encryptedText = cipher.doFinal(plainText);
+            encryptedString = new String(Base64.encodeBase64(encryptedText));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return encryptedString;
+    }
+
+    public String decryptWithKey(String encryptedString, String key) throws Exception {
+        byte[] decodedKey = key.getBytes("UTF8");
+        SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
+
+        String decryptedText=null;
+        Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
+        try {
+            cipher.init(Cipher.DECRYPT_MODE, secret);
+            byte[] encryptedText = encryptedString.getBytes("UTF8");
+            byte[] plainText = cipher.doFinal(encryptedText);
+            decryptedText= new String(plainText);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return decryptedText;
+    }
+
 
 }

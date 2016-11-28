@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="bctsp-jdk15-133">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/librarys/bctsp-jdk15-133.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
