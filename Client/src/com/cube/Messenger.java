@@ -8,6 +8,7 @@ import java.io.OutputStream;
 import java.net.Socket;
 
 //Imports for arrays and lists used
+import java.security.SecureRandom;
 import java.util.*;
 
 //Import for json
@@ -20,8 +21,6 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.crypto.spec.PBEKeySpec;
 
-//Imports for helping functions
-import org.apache.commons.codec.binary.Base64;
 
 public class Messenger {
     //Define variables
@@ -179,7 +178,7 @@ public class Messenger {
                 }
 
                 System.out.println("For tempModeSrc");
-                for(Map.Entry<String, HashMap> entry : modeList.entrySet()) {
+                for(Map.Entry<String, HashMap> entry : tempModeSrc.entrySet()) {
                     String key = entry.getKey();
                     HashMap value = entry.getValue();
 
@@ -187,7 +186,7 @@ public class Messenger {
                 }
 
                 System.out.println("For tempModeDest");
-                for(Map.Entry<String, HashMap> entry : modeList.entrySet()) {
+                for(Map.Entry<String, HashMap> entry : tempModeDest.entrySet()) {
                     String key = entry.getKey();
                     HashMap value = entry.getValue();
 
@@ -281,10 +280,10 @@ public class Messenger {
                             }
                             else{
                                 try{
-                                    String secret = generateKeyFromPassword(password);
+                                    byte[] secret = generateKeyFromPassword(password);
 
                                     //Generate new entry
-                                    HashMap<String, String> mode = new HashMap<String, String>();
+                                    HashMap<String, Object> mode = new HashMap<String, Object>();
                                     mode.put("mode","password");
                                     mode.put("key",secret);
 
@@ -404,7 +403,7 @@ public class Messenger {
                                 if(modes.get("mode").equals("password")){
                                     if(iv != null){
                                         try{
-                                            mess = decryptWithKey(iv.getAsString(),message.getAsString(),modes.get("key").toString());
+                                            mess = decryptWithKey(iv.getAsString(),message.getAsString(),((byte[]) modes.get("key")));
                                         }
                                         catch (Exception e){
                                             System.out.println("System: unable to decrypt message from \""+src.getAsString()+"\" using \"password\" mode!");
@@ -547,7 +546,7 @@ public class Messenger {
                 message.addProperty("mode","password");
                 try{
                     if(verbose) System.out.println("System: encrypting message with password!");
-                    String[] encrypted = encryptWithKey(messag, modes.get("key").toString());
+                    String[] encrypted = encryptWithKey(messag, ((byte[]) modes.get("key")));
                     message.addProperty("iv",encrypted[0]);
                     messag = encrypted[1];
                 }
@@ -563,52 +562,65 @@ public class Messenger {
         return message.toString();
     }
 
-    public String generateKeyFromPassword(String password) throws Exception {
-        if(verbose) System.out.println("System: generateing AES key with password!");
+    public byte[] generateKeyFromPassword(String password) throws Exception {
 
         KeySpec spec = new PBEKeySpec(password.toCharArray(), new byte[16], 65536, 256); // AES-256
         SecretKeyFactory f = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
-        String secretString = new String(f.generateSecret(spec).getEncoded());
+        byte[] secretByte = f.generateSecret(spec).getEncoded();
 
-        return secretString;
+        if(verbose) System.out.println("System: generating AES key thats "+secretByte.length+" bytes long from password!");
+
+        return secretByte;
     }
 
 
-    public String[] encryptWithKey(String unencryptedString, String key) throws Exception {
-        if(verbose) System.out.println("System: encrypting message with aes key!");
-        byte[] decodedKey = key.getBytes("UTF8");
-        SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
+    public String[] encryptWithKey(String unencryptedString, byte[] key) throws Exception {
+        if(verbose) System.out.println("System: encrypting message with AES key thats "+key.length+" long !");
+        SecretKey secret = new SecretKeySpec(key, 0, key.length, passwordCypherScheme);
 
         String encryptedString = null;
-        String iv = null;
+        String ivs = null;
         Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
         try {
-            cipher.init(Cipher.ENCRYPT_MODE, secret);
+            byte[] ivBytes = new byte[16];
+            SecureRandom random = new SecureRandom();
+            random.nextBytes(ivBytes);
+            IvParameterSpec iv = new IvParameterSpec(ivBytes);
+
+            cipher.init(Cipher.ENCRYPT_MODE, secret, iv);
             byte[] plainText = unencryptedString.getBytes("UTF8");
             byte[] encryptedText = cipher.doFinal(plainText);
-            encryptedString = new String(encryptedText);
-            iv = new String(cipher.getIV());
+
+            Base64.Encoder encoder = Base64.getEncoder();
+
+            encryptedString = new String(encoder.encode(encryptedText));
+            ivs = new String(encoder.encode(cipher.getIV()));
 
         } catch (Exception e) {
-            e.printStackTrace();
+            if(e.getMessage().equals("Illegal key size")){
+                System.out.println("System: can't encrypt message. Please install Java Cryptography Extension (JCE) Unlimited Strength Jurisdiction Policy Files.");
+            }else{
+                e.printStackTrace();
+            }
         }
 
-        String[] output = {iv, encryptedString};
+        String[] output = {ivs, encryptedString};
         return output;
     }
 
-    public String decryptWithKey(String ivString, String encryptedString, String key) throws Exception {
-        if(verbose) System.out.println("System: decrypting message with aes key!");
-        byte[] decodedKey = key.getBytes("UTF8");
-        SecretKey secret = new SecretKeySpec(decodedKey, 0, decodedKey.length, passwordCypherScheme);
+    public String decryptWithKey(String ivString, String encryptedString, byte[] key) throws Exception {
+        if(verbose) System.out.println("System: decrypting message with AES key thats "+key.length+" long!");
+        SecretKey secret = new SecretKeySpec(key, 0, key.length, passwordCypherScheme);
 
-        byte[] iv = ivString.getBytes("UTF8");
+        Base64.Decoder decoder = Base64.getDecoder();
+
+        byte[] iv = decoder.decode(ivString.getBytes());
 
         String decryptedText=null;
         Cipher cipher = Cipher.getInstance(passwordCypherSchemeLong);
         try {
             cipher.init(Cipher.DECRYPT_MODE, secret, new IvParameterSpec(iv));
-            byte[] encryptedText = encryptedString.getBytes("UTF8");
+            byte[] encryptedText = decoder.decode(encryptedString.getBytes());
             byte[] plainText = cipher.doFinal(encryptedText);
             decryptedText= new String(plainText);
         } catch (Exception e) {
